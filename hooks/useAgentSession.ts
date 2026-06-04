@@ -287,6 +287,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "message_start":
       case "message_update": {
         const msg = event.message as Partial<AgentMessage> | undefined;
+        if (msg?.role === "user") {
+          break;
+        }
         if (msg) {
           dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
         }
@@ -295,7 +298,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "message_end": {
         const completed = event.message as AgentMessage | undefined;
-        if (completed) {
+        if (completed && completed.role !== "user") {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
         dispatch({ type: "reset" });
