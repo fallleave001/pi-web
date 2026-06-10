@@ -130,8 +130,12 @@ pre, code {
 .markdown-body ul, .markdown-body ol {
   padding-left: 20px;
   margin: 4px 0 8px;
+  list-style-position: outside;
 }
 .markdown-body li { margin: 2px 0; }
+.markdown-body ul > li { list-style-type: disc; }
+.markdown-body ol > li { list-style-type: decimal; }
+.markdown-body li > p { margin: 0; }
 .markdown-body a { color: var(--accent); text-decoration: underline; }
 .markdown-body blockquote {
   border-left: 3px solid var(--border);
