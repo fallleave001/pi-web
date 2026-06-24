@@ -15,6 +15,20 @@ export interface AgentEvent {
 
 type EventListener = (event: AgentEvent) => void;
 
+const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
+  if (toolNames.length === 0) return [];
+
+  const codingToolNames = new Set(CODING_TOOL_NAMES);
+  const extensionToolNames = session
+    .getAllTools()
+    .map((t) => t.name)
+    .filter((name) => !codingToolNames.has(name));
+
+  return [...new Set([...toolNames, ...extensionToolNames])];
+}
+
 // ============================================================================
 // AgentSessionWrapper
 // Wraps AgentSession with the same interface the rest of the app expects
@@ -219,11 +233,8 @@ export class AgentSessionWrapper {
           // From ToolsConfig: set EXACTLY these tools (user's explicit choice)
           this.inner.setActiveToolsByName(names);
         } else {
-          // From old preset: preserve all registered tools (extensions + built-in)
-          const allTools = this.inner.getAllTools();
-          const activeNames = new Set(names);
-          for (const t of allTools) activeNames.add(t.name);
-          this.inner.setActiveToolsByName([...activeNames]);
+          // From old preset: preserve extension tools
+          this.inner.setActiveToolsByName(withExtensionTools(this.inner, names));
         }
         return null;
       }
@@ -337,14 +348,29 @@ export async function startRpcSession(
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
-    // Apply exact tool list after creation, overriding includeAllExtensionTools.
+    // Apply exact tool list after creation.
+    // - Empty toolsOption: disable all, clear system prompt
+    // - toolsOption from activeTools (settings.json): use directly (user's exact choices)
+    // - toolsOption from preset (toolNames from frontend): preserve extension tools
+    if (toolNames !== undefined) {
+      // Coming from frontend preset — pass undefined to allow all, then narrow active set
+      // (upstream approach: avoids filtering extensions out of registry)
+    } else if (toolsOption !== undefined) {
+      // Coming from saved activeTools — pass directly
+    }
+
     if (toolsOption !== undefined) {
       if (toolsOption.length === 0) {
         inner.setActiveToolsByName([]);
         inner.agent.state.systemPrompt = "";
+      } else if (toolNames !== undefined) {
+        // Preset-based: use withExtensionTools to preserve extension tools
+        inner.setActiveToolsByName(withExtensionTools(inner, toolsOption));
       } else {
+        // activeTools from settings: use directly
         inner.setActiveToolsByName(toolsOption);
       }
+    }
     }
 
     const wrapper = new AgentSessionWrapper(inner);
