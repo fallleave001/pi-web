@@ -371,7 +371,6 @@ export async function startRpcSession(
         inner.setActiveToolsByName(toolsOption);
       }
     }
-    }
 
     const wrapper = new AgentSessionWrapper(inner);
     wrapper.start();
