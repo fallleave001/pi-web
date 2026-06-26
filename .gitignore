@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
+# Project junk files
+*.tar.gz
+nul
+pi-pr-principles.md
+pr48.json
+pr_create.json
