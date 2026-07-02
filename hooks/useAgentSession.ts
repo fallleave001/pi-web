@@ -435,7 +435,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
       const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-      const toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+      let toolNames: string[];
+      try {
+        const savedRes = await fetch("/api/tools");
+        const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
+        if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
+          toolNames = saved.config.activeTools;
+        } else {
+          throw new Error("no saved config");
+        }
+      } catch {
+        toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+      }
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -793,7 +804,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else {
           if (selectedModel) setPendingModel(selectedModel);
           const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-          const toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+          let toolNames: string[];
+          try {
+            const savedRes = await fetch("/api/tools");
+            const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
+            if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
+              toolNames = saved.config.activeTools;
+            } else {
+              throw new Error("no saved config");
+            }
+          } catch {
+            toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+          }
           const res = await fetch("/api/agent/new", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

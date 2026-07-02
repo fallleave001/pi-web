@@ -497,7 +497,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 border: "1px solid var(--border)",
                 borderRadius: 8,
                 boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-                overflow: "hidden",
+                overflowY: "auto",
+                overflowX: "hidden",
+                maxHeight: 320,
               }}
             >
               {recentCwds.map((cwd) => (

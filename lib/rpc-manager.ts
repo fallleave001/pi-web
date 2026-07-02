@@ -1,6 +1,8 @@
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "crypto";
 import { cacheSessionPath } from "./session-reader";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
@@ -575,18 +577,25 @@ export async function startRpcSession(
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
 
-    // Determine which tools to pass based on requested toolNames.
-    // Since v0.68.0, createAgentSession expects string[] tool names instead of Tool[] instances.
+    // Determine which tools to pass based on requested toolNames or saved config.
+    // Priority:
+    // 1. Frontend explicitly passed toolNames — use it
+    // 2. Saved activeTools in settings.json — use that (persisted across sessions)
+    // 3. Default: let core's includeAllExtensionTools handle it (all tools active)
     let toolsOption: string[] | undefined;
     if (toolNames !== undefined) {
-      // toolNames === [] -> "all off" (an empty allow-list disables every tool).
-      // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
-      // set allowedToolNames to coding builtins only, which filtered every
-      // extension/package-provided tool (e.g. subagents, web access) out of the
-      // tool registry — so they were unavailable in pi-web sessions even though the
-      // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
-      // tools (and activate extension tools); we narrow the ACTIVE set below.
-      toolsOption = toolNames.length === 0 ? [] : undefined;
+      toolsOption = toolNames.length === 0 ? [] : toolNames;
+    } else {
+      // Read saved activeTools from settings.json
+      try {
+        const settingsPath = join(agentDir, "settings.json");
+        if (existsSync(settingsPath)) {
+          const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+          if (Array.isArray(settings.activeTools)) {
+            toolsOption = settings.activeTools.length > 0 ? settings.activeTools : [];
+          }
+        }
+      } catch {}
     }
 
     const { session: inner } = await createAgentSession({
@@ -596,18 +605,18 @@ export async function startRpcSession(
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
-    // If specific tool names were requested (non-empty), set the active tools to the
-    // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in pi-web just like in the `pi` CLI.
-    if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
-    }
-
-    // When all tools are disabled, clear the system prompt entirely.
-    // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
-    // the only way to truly clear it is to call agent.setSystemPrompt directly.
-    if (toolNames?.length === 0) {
-      inner.agent.state.systemPrompt = "";
+    // Apply exact tool list after creation.
+    if (toolsOption !== undefined) {
+      if (toolsOption.length === 0) {
+        inner.setActiveToolsByName([]);
+        inner.agent.state.systemPrompt = "";
+      } else if (toolNames !== undefined) {
+        // Preset-based: use withExtensionTools to preserve extension tools
+        inner.setActiveToolsByName(withExtensionTools(inner, toolsOption));
+      } else {
+        // activeTools from settings: use directly
+        inner.setActiveToolsByName(toolsOption);
+      }
     }
 
     const wrapper = new AgentSessionWrapper(inner);
