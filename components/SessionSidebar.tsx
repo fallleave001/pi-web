@@ -70,7 +70,6 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
   }
   return [...latestByCwd.entries()]
     .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, 5)
     .map(([cwd]) => cwd);
 }
 
