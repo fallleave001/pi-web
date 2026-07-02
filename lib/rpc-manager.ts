@@ -202,6 +202,14 @@ export class AgentSessionWrapper {
     return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
   }
 
+  private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } finally {
+      notifyRunningChange();
+    }
+  }
+
   private applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
       this.inner.agent.state.systemPrompt = "";
@@ -263,7 +271,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
-        await this.inner.abort();
+        await this.withFinalRunningNotification(() => this.inner.abort());
         return null;
 
       case "get_state": {
@@ -350,7 +358,9 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
-        const result = await this.inner.compact(command.customInstructions as string | undefined);
+        const result = await this.withFinalRunningNotification(() =>
+          this.inner.compact(command.customInstructions as string | undefined)
+        );
         return result;
       }
 
