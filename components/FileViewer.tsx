@@ -49,7 +49,7 @@ function DownloadLink({ filePath, label = "Download" }: { filePath: string; labe
   const encoded = encodeFilePathForApi(filePath);
   return (
     <a
-      href={`/api/files/${encoded}?type=download`}
+      href={`/api/files/${encoded}?type=read`}
       download={getFileName(filePath)}
       style={{
         color: "var(--text-muted)",
