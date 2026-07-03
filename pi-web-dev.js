@@ -45,8 +45,12 @@ child.stdout.on("data", (chunk) => {
   if (!browserOpened && text.includes("Ready")) {
     browserOpened = true;
     const isWindows = process.platform === "win32";
-    const openCmd = isWindows ? "start" : process.platform === "darwin" ? "open" : "xdg-open";
-    spawn(openCmd, [url], { shell: isWindows, stdio: "ignore", detached: true }).unref();
+    if (isWindows) {
+      spawn(`start "" ${url}`, { shell: true, stdio: "ignore", detached: true }).unref();
+    } else {
+      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+      spawn(openCmd, [url], { stdio: "ignore", detached: true }).unref();
+    }
   }
 });
 
