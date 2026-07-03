@@ -84,15 +84,19 @@ async function getPiCliPath(): Promise<string | null> {
  * This avoids modifying pi-coding-agent's template.js.
  */
 function patchExportHtml(html: string): string {
+  // Normalize line endings (route.ts is CRLF, template.js is LF)
+  const n = (s: string) => s.replace(/\r\n/g, "\n");
+  html = n(html);
+
   // Fix 1: sortChildren — recursive → iterative (explicit stack)
   html = html.replace(
-    `        function sortChildren(node) {
+    n(`        function sortChildren(node) {
           node.children.sort((a, b) =>
             new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime()
           );
           node.children.forEach(sortChildren);
-        }`,
-    `        function sortChildren(root) {
+        }`),
+    n(`        function sortChildren(root) {
           const stack = [root];
           while (stack.length) {
             const node = stack.pop();
@@ -103,20 +107,20 @@ function patchExportHtml(html: string): string {
               stack.push(node.children[i]);
             }
           }
-        }`
+        }`)
   );
 
   // Fix 2: markActive — recursive → iterative (two-stack post-order)
   html = html.replace(
-    `        function markActive(node) {
+    n(`        function markActive(node) {
           let has = activePathIds.has(node.entry.id);
           for (const child of node.children) {
             if (markActive(child)) has = true;
           }
           containsActive.set(node, has);
           return has;
-        }`,
-    `        function markActive(root) {
+        }`),
+    n(`        function markActive(root) {
           // Post-order traversal using two stacks
           const stack1 = [root];
           const stack2 = [];
@@ -135,7 +139,7 @@ function patchExportHtml(html: string): string {
             }
             containsActive.set(node, has);
           }
-        }`
+        }`)
   );
 
   return html;
