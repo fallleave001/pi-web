@@ -6,8 +6,8 @@
 
 ## 🔴 P0 — 刚需
 
-- [ ] **1. 上传文件 API** — `POST /api/files/upload` → 保存到 cwd，新做
-- [ ] **2. ChatInput 上传按钮** — 📎 按钮 → 文件选择器 → 上传 → 插入路径
+- [x] **1. 上传文件 API** — `POST /api/files/upload` → 保存到 .uploads/，新做
+- [x] **2. ChatInput 上传按钮** — 📎 按钮 → 文件选择器 → 上传 → 插入路径
 - [x] **3. 文件下载按钮** — 预览头部 + Explorer hover 下载按钮（PR #107）
 
 ## 🟡 P1 — 重要
@@ -54,7 +54,7 @@
  ✅ LaTeX                  ← 已完成
  ✅ HTML 表格边框           ← 已完成
  ✅ 导出 HTML 爆栈修复      ← 已完成（PR fix/export-stack-overflow）
- 🔴 上传文件 API + UI       ← 还没做
+ ✅ 上传文件 API + UI        ← 已完成
 ```
 
 ---
