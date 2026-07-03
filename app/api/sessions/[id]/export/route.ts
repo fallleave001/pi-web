@@ -77,6 +77,70 @@ async function getPiCliPath(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Patch the exported HTML to fix recursive functions that overflow
+ * the call stack on deep linear session trees (e.g., 5000+ entries).
+ * Two functions are patched: sortChildren and markActive.
+ * This avoids modifying pi-coding-agent's template.js.
+ */
+function patchExportHtml(html: string): string {
+  // Fix 1: sortChildren — recursive → iterative (explicit stack)
+  html = html.replace(
+    `        function sortChildren(node) {
+          node.children.sort((a, b) =>
+            new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime()
+          );
+          node.children.forEach(sortChildren);
+        }`,
+    `        function sortChildren(root) {
+          const stack = [root];
+          while (stack.length) {
+            const node = stack.pop();
+            node.children.sort((a, b) =>
+              new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime()
+            );
+            for (let i = node.children.length - 1; i >= 0; i--) {
+              stack.push(node.children[i]);
+            }
+          }
+        }`
+  );
+
+  // Fix 2: markActive — recursive → iterative (two-stack post-order)
+  html = html.replace(
+    `        function markActive(node) {
+          let has = activePathIds.has(node.entry.id);
+          for (const child of node.children) {
+            if (markActive(child)) has = true;
+          }
+          containsActive.set(node, has);
+          return has;
+        }`,
+    `        function markActive(root) {
+          // Post-order traversal using two stacks
+          const stack1 = [root];
+          const stack2 = [];
+          while (stack1.length) {
+            const node = stack1.pop();
+            stack2.push(node);
+            for (const child of node.children) {
+              stack1.push(child);
+            }
+          }
+          while (stack2.length) {
+            const node = stack2.pop();
+            let has = activePathIds.has(node.entry.id);
+            for (const child of node.children) {
+              if (containsActive.get(child)) has = true;
+            }
+            containsActive.set(node, has);
+          }
+        }`
+  );
+
+  return html;
+}
+
 async function exportSession(filePath: string, outputPath: string): Promise<void> {
   const cliPath = await getPiCliPath();
   if (cliPath) {
@@ -124,7 +188,8 @@ export async function GET(
       await exportSession(filePath, outputPath);
 
       const html = readFileSync(outputPath, "utf8");
-      return new Response(html, {
+      const patchedHtml = patchExportHtml(html);
+      return new Response(patchedHtml, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Content-Disposition": getAttachmentDisposition(fileName),

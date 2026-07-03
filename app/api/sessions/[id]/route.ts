@@ -34,8 +34,7 @@ function projectTreeForResponse<T extends { entry: { id: string }; children: T[]
 
     if (
       roots.has(node) ||
-      node.children.length !== 1 ||
-      node.children[0].children.length === 0  // keep if the only child is a leaf (e.g. compaction)
+      node.children.length !== 1
     ) {
       keep.add(node);
     }
