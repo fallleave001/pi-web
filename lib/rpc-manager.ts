@@ -1,4 +1,4 @@
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "crypto";
 import { cacheSessionPath } from "./session-reader";
 import { existsSync, readFileSync } from "fs";
@@ -913,7 +913,6 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
-    const { SessionManager, getAgentDir } = await import("@earendil-works/pi-coding-agent");
     const agentDir = getAgentDir();
 
     const sessionManager = sessionFile
@@ -941,9 +940,11 @@ export async function startRpcSession(
       } catch {}
     }
 
-    const { session: inner } = await createAgentSession({
-      cwd,
-      agentDir,
+    // Build services first so extension-registered providers are available
+    // before the SDK restores the saved model from the session file.
+    const services = await createAgentSessionServices({ cwd, agentDir });
+    const { session: inner } = await createAgentSessionFromServices({
+      services,
       sessionManager,
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });

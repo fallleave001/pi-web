@@ -66,6 +66,8 @@ export async function GET(req: Request) {
       name: m.name,
       provider: m.provider,
     })).sort(compareModelEntries);
+
+    nameMap.clear();
     for (const m of visible) {
       const key = `${m.provider}:${m.id}`;
       nameMap.set(key, m.name);
@@ -75,7 +77,7 @@ export async function GET(req: Request) {
 
     const provider = settings.getDefaultProvider();
     const modelId = settings.getDefaultModel();
-    if (provider && modelId && available.some((m) => m.provider === provider && m.id === modelId)) {
+    if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
       defaultModel = { provider, modelId };
     }
   } catch { /* return empty */ }
