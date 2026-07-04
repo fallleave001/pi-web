@@ -21,6 +21,8 @@ interface Props {
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
   entryId?: string;
   onFork?: (entryId: string) => void;
   forking?: boolean;
@@ -67,7 +69,7 @@ function copyText(text: string): Promise<void> {
 
 export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, cwd, onOpenFile }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} />;
@@ -77,13 +79,15 @@ export function MessageView({ message, isStreaming, toolResults, modelNames, ent
     return null;
   }
   if (message.role === "custom") {
-    return <CustomMessageView message={message as CustomMessage} />;
+    return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   return null;
 }
 
-function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
   entryId?: string;
   onFork?: (entryId: string) => void;
   forking?: boolean;
@@ -164,7 +168,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
               })}
             </div>
           )}
-          {content && <MarkdownBody className="markdown-user-message">{content}</MarkdownBody>}
+          {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
         </div>
 
       </div>
@@ -1080,7 +1084,7 @@ function PairedResult({ text, isEmpty, isError }: {
   );
 }
 
-function CustomMessageView({ message }: { message: CustomMessage }) {
+function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1148,7 +1152,7 @@ function CustomMessageView({ message }: { message: CustomMessage }) {
                 })}
               </div>
             )}
-            {text ? <MarkdownBody className="markdown-custom-message">{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no message)</span>}
+            {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no message)</span>}
           </div>
         ) : (
           <button

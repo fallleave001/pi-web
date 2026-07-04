@@ -131,7 +131,6 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
     </div>
   );
 }
-
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
@@ -222,6 +221,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const messageRefs = useMessageRefs(visibleMessages.length);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
+  const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -448,6 +448,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
+                    cwd={messageCwd}
+                    onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
                     onFork={agentRunning || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
@@ -551,7 +553,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             })()}
 
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (
