@@ -16,7 +16,7 @@ interface Props {
   onCwdChange?: (cwd: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
-  onAtMention?: (relativePath: string) => void;
+  onAtMention?: (relativePath: string, isDir: boolean) => void;
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
