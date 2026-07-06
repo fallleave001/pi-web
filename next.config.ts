@@ -13,6 +13,16 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"],
   allowedDevOrigins: ['192.168.*.*'],
   outputFileTracingRoot: __dirname,
+  async headers() {
+    return [
+      {
+        source: "/",
+        headers: [
+          { key: "Cache-Control", value: "private, no-cache, max-age=0, must-revalidate" },
+        ],
+      },
+    ];
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: piVersion,
