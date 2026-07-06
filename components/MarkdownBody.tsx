@@ -64,6 +64,32 @@ export function MarkdownBody({ children, className, isStreaming }: MarkdownBodyP
           pre({ children }) {
             return <>{children}</>;
           },
+          a({ href, children, ...props }) {
+            const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
+            const openFile = onOpenFile;
+            if (!filePath || !openFile) {
+              return (
+                <a href={href} {...props}>
+                  {children}
+                </a>
+              );
+            }
+
+            const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+              if (event.defaultPrevented || event.button !== 0) return;
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              const target = event.currentTarget.getAttribute("target");
+              if (target && target !== "_self") return;
+              event.preventDefault();
+              openFile(filePath);
+            };
+
+            return (
+              <a href={href} {...props} onClick={handleClick}>
+                {children}
+              </a>
+            );
+          },
           table({ children }) {
             return (
               <div className="markdown-table-wrap">
