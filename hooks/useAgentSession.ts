@@ -11,7 +11,7 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ToolEntry } from "@/components/ToolPanel";
+import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -483,7 +483,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
       if (tools) {
-        const { getPresetFromTools } = await import("@/components/ToolPanel");
+        const { getPresetFromTools } = await import("@/lib/tool-presets");
         setToolPresetState(getPresetFromTools(tools));
       }
     } catch (e) {
@@ -515,19 +515,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const promise = (async () => {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-      let toolNames: string[];
-      try {
-        const savedRes = await fetch("/api/tools");
-        const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
-        if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
-          toolNames = saved.config.activeTools;
-        } else {
-          throw new Error("no saved config");
-        }
-      } catch {
-        toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
-      }
+      const toolNames = getToolNamesForPreset(toolPreset);
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1013,53 +1001,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+        const sid = existingSid ?? await ensureNewSession();
 
-        if (existingSid) {
-          sentSessionId = existingSid;
+        if (sid) {
+          sentSessionId = sid;
           if (selectedModel) {
             setPendingModel(selectedModel);
-            await sendAgentCommand(existingSid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
-          }
-          await ensureEventsConnected(existingSid);
-          await sendAgentCommand(existingSid, {
-            type: "prompt",
-            message,
-            ...(piImages?.length ? { images: piImages } : {}),
-          });
-          promoteNewSession(1, message);
-        } else {
-          if (selectedModel) setPendingModel(selectedModel);
-          const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-          let toolNames: string[];
-          try {
-            const savedRes = await fetch("/api/tools");
-            const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
-            if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
-              toolNames = saved.config.activeTools;
-            } else {
-              throw new Error("no saved config");
+            if (existingSid) {
+              await sendAgentCommand(sid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
             }
-          } catch {
-            toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
           }
-          const res = await fetch("/api/agent/new", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              cwd: newSessionCwd,
-              type: "ensure_session",
-              toolNames,
-              ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
-              ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
-            }),
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const result = await res.json() as { sessionId: string };
-          const realId = result.sessionId;
-          sessionIdRef.current = realId;
-          sentSessionId = realId;
-          await ensureEventsConnected(realId);
-          await sendAgentCommand(realId, {
+          await ensureEventsConnected(sid);
+          await sendAgentCommand(sid, {
             type: "prompt",
             message,
             ...(piImages?.length ? { images: piImages } : {}),
@@ -1098,7 +1051,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, toolPreset, thinkingLevel, session, agentRunning, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice]);
+  }, [isNew, newSessionCwd, newSessionModel, session, agentRunning, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1355,8 +1308,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
-    const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-    const toolNames = preset === "none" ? PRESET_NONE : preset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+    const toolNames = getToolNamesForPreset(preset);
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
