@@ -525,11 +525,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       try {
         const savedRes = await fetch("/api/tools");
         const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
-        if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
-          toolNames = saved.config.activeTools;
-        } else {
-          throw new Error("no saved config");
-        }
+        toolNames = saved.config?.activeTools && Array.isArray(saved.config.activeTools)
+          ? saved.config.activeTools
+          : getToolNamesForPreset(toolPreset);
       } catch {
         toolNames = getToolNamesForPreset(toolPreset);
       }
