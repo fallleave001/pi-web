@@ -142,7 +142,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             fontSize: 14,
             lineHeight: 1.6,
             color: "var(--text)",
-            wordBreak: "break-word",
+            overflowWrap: "break-word",
           }}
         >
           {imageBlocks.length > 0 && (
@@ -1092,13 +1092,14 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const time = formatTime(message.timestamp);
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 16, width: "100%" }}>
       <div
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,
           overflow: "hidden",
           background: "var(--bg)",
+          width: "100%",
         }}
       >
         <div
@@ -1126,7 +1127,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
             The conversation history before this point was compacted into the following summary:
           </div>
           {parsedSummary.body ? (
-            <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+            <div style={{ width: "100%", minWidth: 0 }}><MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody></div>
           ) : (
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no summary)</span>
           )}

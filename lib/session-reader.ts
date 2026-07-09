@@ -131,6 +131,8 @@ function parseEntryTimestamp(timestamp: string): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+
+
 // Convert a session entry on the active branch into a UI message.
 // Returns null for entries that do not map to chat history (metadata, non-message types).
 function entryToUiMessage(entry: SessionEntry): AgentMessage | null {
@@ -139,14 +141,8 @@ function entryToUiMessage(entry: SessionEntry): AgentMessage | null {
       return normalizeToolCalls(entry.message);
     case "compaction":
       return {
-        role: "custom",
-        customType: "compaction",
-        content: entry.summary,
-        display: true,
-        details: {
-          tokensBefore: entry.tokensBefore,
-          firstKeptEntryId: entry.firstKeptEntryId,
-        },
+        role: "user",
+        content: `*The conversation history before this point was compacted into the following summary:*\n\n${entry.summary ?? ""}`,
         timestamp: parseEntryTimestamp(entry.timestamp),
       };
     case "branch_summary":

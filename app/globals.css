@@ -114,7 +114,7 @@ pre, code {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .markdown-body p { margin: 0 0 8px; }
 .markdown-body p:last-child { margin-bottom: 0; }
@@ -169,23 +169,29 @@ pre, code {
   list-style: none;
 }
 .markdown-body .task-list-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 7px;
-  align-items: start;
-  padding-left: 0;
+  list-style: none;
+  padding-left: 25px;
+  min-width: 0;
 }
-.markdown-body .task-list-item::marker { content: ""; }
+.markdown-body .task-list-item::marker {
+  content: none;
+}
+.markdown-body .task-list-item::before {
+  content: none !important;
+  display: none !important;
+}
 .markdown-body .task-list-item input[type="checkbox"] {
   appearance: none;
   width: 14px;
   height: 14px;
-  margin: 5px 0 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg);
-  display: inline-grid;
-  place-content: center;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 7px;
+  margin-left: -25px;
+  flex-shrink: 0;
 }
 .markdown-body .task-list-item input[type="checkbox"]:checked {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
@@ -197,7 +203,13 @@ pre, code {
   height: 8px;
   border: solid var(--accent);
   border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg) translateY(-1px);
+  position: absolute;
+  top: 1.5px;
+  left: 4px;
+  transform: rotate(45deg);
+}
+.markdown-body .task-list-item input[type="checkbox"] {
+  position: relative;
 }
 .markdown-body blockquote {
   border-left: 3px solid color-mix(in srgb, var(--border) 75%, var(--text-muted));
@@ -283,6 +295,12 @@ pre, code {
 
 .markdown-compaction-message {
   line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  display: block;
 }
 .markdown-compaction-message p { margin: 0 0 7px; }
 .markdown-compaction-message h1,
