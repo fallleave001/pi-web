@@ -7,6 +7,16 @@ const MAX_FILES = 500;
 const MAX_RESULTS = 30;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_LINE_CHARS = 1024 * 1024;
+/** Bound on one result's snippet, including margins and any appended excerpts. */
+const MAX_SNIPPET_CHARS = 200;
+/** Past this many terms the per-message width expansion turns quadratic; search the whole query literally. */
+const MAX_TERMS = 8;
+/** Anchor margin of a multi-term query: it keeps room for terms found in other messages. */
+const MULTI_TERM_MARGIN = 40;
+/** Excerpt sizes tried in order, largest first, for a term outside the anchor's window. */
+const EXCERPT_SIZES = [30, 20, 12] as const;
+/** Room kept free for the " … (+N)" tail counting terms that no longer fit. */
+const OMITTED_MARK_RESERVE = 10;
 const TIME_BUDGET_MS = 3000;
 /**
  * Extracted text kept between queries, counted in UTF-16 code units: a non-Latin-1 character
@@ -26,6 +36,21 @@ export interface SessionSearchResult {
   before: string;
   match: string;
   after: string;
+  /**
+   * Every term's highlight, as offsets into `before + match + after`, so an AND
+   * query marks each of its words instead of only the first one. Overlapping
+   * terms are merged; a term that only occurs outside the snippet window has no
+   * range. Absent means "just `match`", which is what older payloads implied.
+   */
+  highlights?: HighlightRange[];
+}
+
+/** One term's first hit; the snippet and its ranges are assembled from these. */
+type TermHit = Omit<SessionSearchResult, "session" | "titleMatch" | "highlights">;
+
+export interface HighlightRange {
+  start: number;
+  end: number;
 }
 
 export interface SessionSearchResponse {
@@ -183,6 +208,184 @@ async function statForCache(path: string): Promise<{ mtimeMs: number; size: numb
   }
 }
 
+// Slicing by UTF-16 index can cut a surrogate pair in half, which renders as a
+// replacement character; move the boundary out of the pair.
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function head(text: string, length: number): string {
+  if (text.length <= length) return text;
+  return text.slice(0, isLowSurrogate(text.charCodeAt(length)) ? length - 1 : length);
+}
+
+function tail(text: string, length: number): string {
+  const start = text.length - length;
+  if (start <= 0) return text;
+  return text.slice(isLowSurrogate(text.charCodeAt(start)) ? start - 1 : start);
+}
+
+// One range per term: the primary hit for the first term, its earliest occurrence
+// for the rest. Sorted and merged so overlapping terms paint a single mark.
+function highlightRanges(before: string, match: string, after: string, matchers: readonly RegExp[]): HighlightRange[] {
+  const text = before + match + after;
+  const ranges: HighlightRange[] = [{ start: before.length, end: before.length + match.length }];
+  for (const matcher of matchers.slice(1)) {
+    const hit = matcher.exec(text);
+    if (hit) ranges.push({ start: hit.index, end: hit.index + hit[0].length });
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  const merged: HighlightRange[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+// Space separates terms and every term must match somewhere in the session
+// (session-level AND, any order); double quotes keep a phrase exact. Each term
+// stays literal, so `C++` and `foo(bar)` need no escaping from the user.
+// A quote only delimits a phrase at the start of a term or to close one, so a
+// quote inside a word (`foo"bar`) stays literal and stays searchable.
+function parseTerms(query: string): string[] {
+  const terms: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (const char of query) {
+    if (char === '"') {
+      if (quoted) {
+        if (current) terms.push(current);
+        current = "";
+        quoted = false;
+        continue;
+      }
+      if (!current) {
+        quoted = true;
+        continue;
+      }
+    }
+    if (!quoted && /\s/.test(char)) {
+      if (current) terms.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current) terms.push(current);
+  return terms;
+}
+
+/** Escapes every operator: this is literal search, with offsets in the original text. */
+function literalMatcher(term: string): RegExp {
+  return new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+}
+
+/**
+ * Fills in the first hit of every term this message still needs, and reports whether
+ * the session now has one for each of them: terms may sit on different lines.
+ */
+function collectMessageHits(message: MessageText, matchers: readonly RegExp[], hits: Array<TermHit | undefined>): boolean {
+  const text = message.blocks.map((block) => block.text).join("\n");
+  for (const [termIndex, matcher] of matchers.entries()) {
+    if (hits[termIndex]) continue;
+    const match = matcher.exec(text);
+    if (!match) continue;
+    const anchorStart = match.index;
+    const anchorEnd = anchorStart + match[0].length;
+    // Widen around the anchor to the other terms of this message, so a
+    // two-word query usually shows two marks instead of one. Bounded: a
+    // couple of far-apart hits must not turn the row into a paragraph.
+    let spanStart = anchorStart;
+    let spanEnd = anchorEnd;
+    for (const other of matchers) {
+      const hit = other.exec(text);
+      if (!hit) continue;
+      spanStart = Math.min(spanStart, hit.index);
+      spanEnd = Math.max(spanEnd, hit.index + hit[0].length);
+    }
+    // Prefer the historical 80/80 margins; tighten them only when a long term
+    // or a wide span would push the row past MAX_SNIPPET_CHARS ("..." costs six
+    // characters). A single term never widens, so it keeps the old window.
+    const span = spanEnd - spanStart;
+    const needsWiden = spanStart < anchorStart || spanEnd > anchorEnd;
+    const marginWithin = (contentLength: number) =>
+      Math.max(0, Math.min(80, Math.floor((MAX_SNIPPET_CHARS - contentLength - 6) / 2)));
+    const widenMargin = marginWithin(span);
+    const widened = needsWiden && widenMargin >= 20;
+    const baseMargin = widened ? widenMargin : marginWithin(match[0].length);
+    // A multi-term query whose other terms sit in another message still has to
+    // fit their excerpts; a single term keeps the historical 80/80 window.
+    const margin = widened || matchers.length === 1 ? baseMargin : Math.min(baseMargin, MULTI_TERM_MARGIN);
+    const start = Math.max(0, (widened ? spanStart : anchorStart) - margin);
+    const end = Math.min(text.length, (widened ? spanEnd : anchorEnd) + margin);
+    let blockOffset = 0;
+    const matchedBlock = message.blocks.find((block) => {
+      const blockEnd = blockOffset + block.text.length;
+      blockOffset = blockEnd + 1;
+      return anchorStart <= blockEnd;
+    })!;
+    // Keep window boundaries out of surrogate pairs as well.
+    const safeStart = isLowSurrogate(text.charCodeAt(start)) ? start + 1 : start;
+    const safeEnd = end < text.length && isLowSurrogate(text.charCodeAt(end)) ? end - 1 : end;
+    const before = (safeStart > 0 ? "..." : "") + text.slice(safeStart, anchorStart).replace(/\s+/g, " ").trimStart();
+    const matchText = match[0].replace(/\s+/g, " ");
+    const after = text.slice(anchorEnd, safeEnd).replace(/\s+/g, " ").trimEnd() + (safeEnd < text.length ? "..." : "");
+    hits[termIndex] = {
+      ...(message.entryId !== undefined ? { entryId: message.entryId } : {}),
+      blockIndex: matchedBlock.blockIndex,
+      before,
+      match: matchText,
+      after,
+    };
+  }
+  return hits.every((hit) => hit !== undefined);
+}
+
+/**
+ * The row is anchored on the first term's earliest hit (for a single term that is
+ * exactly the previous behaviour), then grows an excerpt for every term that hit
+ * nowhere inside it — typically a word from another message.
+ */
+function assembleResult(session: SessionInfo, hits: readonly TermHit[], matchers: readonly RegExp[]): SessionSearchResult {
+  const primary = hits[0];
+  const before = primary.before;
+  const matchText = primary.match;
+  let after = primary.after;
+  const snippet = () => before + matchText + after;
+  let omitted = 0;
+  for (let index = 1; index < hits.length; index++) {
+    const hit = hits[index];
+    if (matchers[index].test(snippet())) continue;
+    // Shrink the excerpt before dropping it: a silent drop makes a two-word query
+    // look like a one-word one and hides why the session matched at all.
+    let appended = false;
+    for (const size of EXCERPT_SIZES) {
+      // No leading ellipsis: the separator already marks the gap in front of it.
+      const excerpt =
+        tail(hit.before, size) + hit.match + head(hit.after, size) +
+        (hit.after.length > size ? "..." : "");
+      // Drop the anchor's trailing ellipsis: the separator already marks the gap in front of it.
+      const base = after.endsWith("...") ? after.slice(0, -3) : after;
+      const joined = base + " … " + excerpt;
+      if (before.length + matchText.length + joined.length > MAX_SNIPPET_CHARS - OMITTED_MARK_RESERVE) continue;
+      after = joined;
+      appended = true;
+      break;
+    }
+    if (!appended) omitted += 1;
+  }
+  // Count what no longer fits, so a row never pretends every term is visible.
+  if (omitted) {
+    const base = after.endsWith("...") ? after.slice(0, -3) : after;
+    after = base + ` … (+${omitted})`;
+  }
+  // Ranges are recomputed over the assembled snippet so the appended excerpts
+  // are marked like the anchor.
+  return { session, ...primary, before, match: matchText, after, highlights: highlightRanges(before, matchText, after, matchers) };
+}
+
 // ponytail: scan recent files without an index; add indexing if measured latency warrants it.
 export async function searchSessionContents(
   sessions: readonly SessionInfo[],
@@ -193,8 +396,12 @@ export async function searchSessionContents(
   const needle = query.trim();
   if (!needle) return response;
   if (needle.length > 200) throw new RangeError("Search query exceeds 200 characters");
-  // Escape every operator: this is literal search, with offsets in the original text.
-  const matcher = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  const parsed = parseTerms(needle);
+  // A query of only quotes, e.g. `""`, parses to no term at all and a pathological one
+  // can parse to dozens; both fall back to the whole string as a single literal term,
+  // which is exactly the search this change must never narrow.
+  const terms = parsed.length && parsed.length <= MAX_TERMS ? parsed : [needle];
+  const matchers = terms.map(literalMatcher);
   const deadline = Date.now() + TIME_BUDGET_MS;
   const timeout = AbortSignal.timeout(TIME_BUDGET_MS);
   const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout;
@@ -210,11 +417,13 @@ export async function searchSessionContents(
       response.truncated = true;
       break;
     }
+    // First hit per term; a session qualifies once every term has one.
+    const hits: Array<TermHit | undefined> = matchers.map(() => undefined);
     let found = false;
+    let tailUnread = false;
     // A cache hit is only trusted while the file keeps the size and mtime it was read with,
     // so the stat happens first and a file that changed is simply read again.
     let messages: MessageText[] | undefined;
-    let tailUnread = false;
     if (CACHE_ENABLED) {
       const cache = sessionCache();
       if (cache.sessions.has(session.path)) {
@@ -239,7 +448,7 @@ export async function searchSessionContents(
           response.truncated = true;
           break;
         }
-        if (matchMessage(message, matcher, session, response)) {
+        if (collectMessageHits(message, matchers, hits)) {
           found = true;
           break;
         }
@@ -254,7 +463,7 @@ export async function searchSessionContents(
       try {
         for await (const message of readMessageTexts(session.path, signal, deadline, scan)) {
           if (CACHE_ENABLED) collected.push(message);
-          if (matchMessage(message, matcher, session, response)) {
+          if (collectMessageHits(message, matchers, hits)) {
             found = true;
             break;
           }
@@ -272,6 +481,7 @@ export async function searchSessionContents(
         rememberMessages(session.path, before.mtimeMs, before.size, collected, scan.capped);
       }
     }
+    if (found) response.results.push(assembleResult(session, hits as TermHit[], matchers));
     // A file cut at MAX_FILE_BYTES only means the answer is partial when nothing matched
     // inside the bytes that were read, which is how the plain scan reports it too.
     if (!found && tailUnread) response.truncated = true;
@@ -280,42 +490,24 @@ export async function searchSessionContents(
     // title hit is a fallback only when the transcript has no match.
     if (!found && !signal.aborted && Date.now() < deadline) {
       const title = session.name || session.firstMessage || "";
-      const titleHit = matcher.exec(title);
+      // Every term has to be in the title; highlighting one of them alone would
+      // make the result look like a partial match.
+      const titleHit = matchers.every((matcher) => matcher.test(title)) ? matchers[0].exec(title) : null;
       if (titleHit) {
+        const before = title.slice(0, titleHit.index);
+        const matchText = titleHit[0];
+        const after = title.slice(titleHit.index + titleHit[0].length);
         response.results.push({
           session,
           blockIndex: 0,
           titleMatch: true,
-          before: title.slice(0, titleHit.index),
-          match: titleHit[0],
-          after: title.slice(titleHit.index + titleHit[0].length),
+          before,
+          match: matchText,
+          after,
+          highlights: highlightRanges(before, matchText, after, matchers),
         });
       }
     }
   }
   return response;
-}
-
-/** Appends the first match of one message, with the block the viewer must reveal. */
-function matchMessage(message: MessageText, matcher: RegExp, session: SessionInfo, response: SessionSearchResponse): boolean {
-  const text = message.blocks.map((block) => block.text).join("\n");
-  const match = matcher.exec(text);
-  if (!match) return false;
-  const start = match.index;
-  const end = start + match[0].length;
-  let blockOffset = 0;
-  const matchedBlock = message.blocks.find((block) => {
-    const blockEnd = blockOffset + block.text.length;
-    blockOffset = blockEnd + 1;
-    return start <= blockEnd;
-  })!;
-  response.results.push({
-    session,
-    ...(message.entryId !== undefined ? { entryId: message.entryId } : {}),
-    blockIndex: matchedBlock.blockIndex,
-    before: (start > 80 ? "..." : "") + text.slice(Math.max(0, start - 80), start).replace(/\s+/g, " ").trimStart(),
-    match: match[0].replace(/\s+/g, " "),
-    after: text.slice(end, end + 80).replace(/\s+/g, " ").trimEnd() + (end + 80 < text.length ? "..." : ""),
-  });
-  return true;
 }
